@@ -14,7 +14,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,127 +34,124 @@ fun LoginScreen(
 ) {
     val context = LocalContext.current
 
-    Scaffold { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(24.dp),
-            contentAlignment = Alignment.Center
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "QuickBite",
-                    style = MaterialTheme.typography.displayMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
+            Text(
+                text = "QuickBite",
+                style = MaterialTheme.typography.displayMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
 
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "Pre-order your food. Skip the wait.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            if (authState is AuthState.SigningIn) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(36.dp)
+                )
                 Spacer(modifier = Modifier.height(12.dp))
-
                 Text(
-                    text = "Pre-order your food. Skip the wait.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
+                    text = "Selecting Google account...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-
-                Spacer(modifier = Modifier.height(48.dp))
-
-                if (authState is AuthState.SigningIn) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(36.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+            } else {
+                Button(
+                    onClick = { onGoogleSignInClicked(context) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                ) {
                     Text(
-                        text = "Selecting Google account...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Continue with Google",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
                     )
-                } else {
-                    Button(
-                        onClick = { onGoogleSignInClicked(context) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                    ) {
-                        Text(
-                            text = "Continue with Google",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
                 }
             }
+        }
 
-            // Error & Status Dialogs
-            when (authState) {
-                is AuthState.Error -> {
-                    AlertDialog(
-                        onDismissRequest = onDismissError,
-                        title = { Text("Authentication Error") },
-                        text = { Text(authState.message) },
-                        confirmButton = {
-                            TextButton(onClick = onDismissError) {
-                                Text("OK")
-                            }
+        // Error & Status Dialogs
+        when (authState) {
+            is AuthState.Error -> {
+                AlertDialog(
+                    onDismissRequest = onDismissError,
+                    title = { Text("Authentication Error") },
+                    text = { Text(authState.message) },
+                    confirmButton = {
+                        TextButton(onClick = onDismissError) {
+                            Text("OK")
                         }
-                    )
-                }
-                is AuthState.OAuthCancelled -> {
-                    AlertDialog(
-                        onDismissRequest = onDismissError,
-                        title = { Text("Sign-In Cancelled") },
-                        text = { Text("Google account selection was cancelled.") },
-                        confirmButton = {
-                            TextButton(onClick = onDismissError) {
-                                Text("OK")
-                            }
-                        }
-                    )
-                }
-                is AuthState.NetworkError -> {
-                    AlertDialog(
-                        onDismissRequest = onDismissError,
-                        title = { Text("Network Error") },
-                        text = { Text("Unable to reach authentication server. Please check your internet connection.") },
-                        confirmButton = {
-                            TextButton(onClick = onDismissError) {
-                                Text("OK")
-                            }
-                        }
-                    )
-                }
-                is AuthState.MissingProfile -> {
-                    AlertDialog(
-                        onDismissRequest = onDismissError,
-                        title = { Text("Profile Setup Error") },
-                        text = { Text("Your Google account is authenticated, but QuickBite profile creation failed in the database. Please check your database permissions or RLS policies.") },
-                        confirmButton = {
-                            TextButton(onClick = onDismissError) {
-                                Text("OK")
-                            }
-                        }
-                    )
-                }
-                is AuthState.SessionRestorationFailed -> {
-                    AlertDialog(
-                        onDismissRequest = onDismissError,
-                        title = { Text("Session Expired") },
-                        text = { Text("Your previous session could not be restored. Please sign in again.") },
-                        confirmButton = {
-                            TextButton(onClick = onDismissError) {
-                                Text("OK")
-                            }
-                        }
-                    )
-                }
-                else -> {}
+                    }
+                )
             }
+            is AuthState.OAuthCancelled -> {
+                AlertDialog(
+                    onDismissRequest = onDismissError,
+                    title = { Text("Sign-In Cancelled") },
+                    text = { Text("Google account selection was cancelled.") },
+                    confirmButton = {
+                        TextButton(onClick = onDismissError) {
+                            Text("OK")
+                        }
+                    }
+                )
+            }
+            is AuthState.NetworkError -> {
+                AlertDialog(
+                    onDismissRequest = onDismissError,
+                    title = { Text("Network Error") },
+                    text = { Text("Unable to reach authentication server. Please check your internet connection.") },
+                    confirmButton = {
+                        TextButton(onClick = onDismissError) {
+                            Text("OK")
+                        }
+                    }
+                )
+            }
+            is AuthState.MissingProfile -> {
+                AlertDialog(
+                    onDismissRequest = onDismissError,
+                    title = { Text("Profile Setup Error") },
+                    text = { Text("Your Google account is authenticated, but QuickBite profile creation failed in the database. Please check your database permissions or RLS policies.") },
+                    confirmButton = {
+                        TextButton(onClick = onDismissError) {
+                            Text("OK")
+                        }
+                    }
+                )
+            }
+            is AuthState.SessionRestorationFailed -> {
+                AlertDialog(
+                    onDismissRequest = onDismissError,
+                    title = { Text("Session Expired") },
+                    text = { Text("Your previous session could not be restored. Please sign in again.") },
+                    confirmButton = {
+                        TextButton(onClick = onDismissError) {
+                            Text("OK")
+                        }
+                    }
+                )
+            }
+            else -> {}
         }
     }
 }

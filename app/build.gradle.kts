@@ -74,8 +74,12 @@ dependencies {
     implementation(platform(libs.supabase.bom))
     implementation(libs.supabase.auth)
     implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.storage)
     implementation(libs.ktor.client.cio)
     implementation(libs.kotlinx.serialization.json)
+    
+    // Image loading
+    implementation(libs.coil.compose)
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

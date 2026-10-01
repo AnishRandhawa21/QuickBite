@@ -26,7 +26,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,7 +54,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -60,23 +61,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.anish.quickbite.data.model.Canteen
+import com.anish.quickbite.data.model.MenuItem
 import com.anish.quickbite.viewmodel.AdminState
 import com.anish.quickbite.viewmodel.AdminViewModel
 import java.io.ByteArrayOutputStream
 
 @Composable
-fun AdminScreen(
+fun AdminMenuScreen(
+    canteenId: String,
     adminViewModel: AdminViewModel = viewModel(),
-    onSignOut: () -> Unit,
-    onCanteenSelected: (Canteen) -> Unit,
-    onViewOrdersClicked: () -> Unit
+    onNavigateBack: () -> Unit
 ) {
     val uiState by adminViewModel.uiState.collectAsState()
-    var showAddCanteenSheet by rememberSaveable { mutableStateOf(false) }
+    var showSheet by rememberSaveable { mutableStateOf(false) }
+    var itemToEdit by remember { mutableStateOf<MenuItem?>(null) }
+    var showDeleteConfirm by remember { mutableStateOf<MenuItem?>(null) }
 
-    LaunchedEffect(Unit) {
-        adminViewModel.loadCanteens()
+    LaunchedEffect(canteenId) {
+        adminViewModel.loadMenu(canteenId)
     }
 
     Box(
@@ -106,122 +108,77 @@ fun AdminScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
-                        onClick = { adminViewModel.loadCanteens() },
+                        onClick = { adminViewModel.loadMenu(canteenId) },
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text("Retry")
                     }
                 }
             }
-            is AdminState.CanteensLoaded -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 88.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // Quick Action Banner / Orders Button
-                    item {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .clickable { onViewOrdersClicked() },
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
+            is AdminState.MenuLoaded -> {
+                if (state.menuItems.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No menu items added yet.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 88.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Section Header / Summary
+                        item {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(20.dp),
+                                    .padding(vertical = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Incoming Orders",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "View and manage active food orders",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                                    )
-                                }
+                                Text(
+                                    text = "Menu Items",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
                                 Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.primary
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.secondaryContainer
                                 ) {
                                     Text(
-                                        text = "View →",
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                        fontWeight = FontWeight.Bold
+                                        text = "${state.menuItems.size} Total",
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                 }
                             }
                         }
-                    }
 
-                    // Section Title
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "My Canteens",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
+                        items(state.menuItems) { item ->
+                            MenuItemCard(
+                                item = item,
+                                onEdit = {
+                                    itemToEdit = item
+                                    showSheet = true
+                                },
+                                onDelete = {
+                                    showDeleteConfirm = item
+                                },
+                                onToggleAvailability = {
+                                    adminViewModel.toggleAvailability(canteenId, item.id, item.isAvailable)
+                                }
                             )
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.secondaryContainer
-                            ) {
-                                Text(
-                                    text = "${state.canteens.size} Assigned",
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    }
-
-                    if (state.canteens.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "No canteens assigned yet.",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    } else {
-                        items(state.canteens) { canteen ->
-                            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
-                                CanteenCard(
-                                    canteen = canteen,
-                                    onClick = { onCanteenSelected(canteen) }
-                                )
-                            }
                         }
                     }
                 }
@@ -231,7 +188,10 @@ fun AdminScreen(
 
         // Floating Action Button
         ExtendedFloatingActionButton(
-            onClick = { showAddCanteenSheet = true },
+            onClick = {
+                itemToEdit = null
+                showSheet = true
+            },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(20.dp),
@@ -240,7 +200,7 @@ fun AdminScreen(
             contentColor = MaterialTheme.colorScheme.onPrimary,
             text = {
                 Text(
-                    text = "Add Canteen",
+                    text = "Add Item",
                     fontWeight = FontWeight.Bold
                 )
             },
@@ -253,22 +213,45 @@ fun AdminScreen(
             }
         )
 
-        if (showAddCanteenSheet) {
-            AddCanteenBottomSheet(
-                onDismiss = { showAddCanteenSheet = false },
-                onSave = { name, location, isOpen, bytes, ext, onError, onSuccess ->
-                    adminViewModel.createCanteen(
-                        name = name,
-                        location = location,
-                        isOpen = isOpen,
-                        imageBytes = bytes,
-                        extension = ext,
-                        onSuccess = {
-                            showAddCanteenSheet = false
-                            onSuccess()
+        if (showSheet) {
+            AddEditMenuItemBottomSheet(
+                canteenId = canteenId,
+                initialItem = itemToEdit,
+                onDismiss = { showSheet = false },
+                onSave = { newItem, bytes, ext, onError, onSuccess ->
+                    if (itemToEdit == null) {
+                        adminViewModel.addMenuItem(newItem, bytes, ext, onSuccess = onSuccess, onError = onError)
+                    } else {
+                        adminViewModel.updateMenuItem(newItem, bytes, ext, onSuccess = onSuccess, onError = onError)
+                    }
+                }
+            )
+        }
+
+        showDeleteConfirm?.let { item ->
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = null },
+                shape = RoundedCornerShape(20.dp),
+                title = { Text("Delete this item?", fontWeight = FontWeight.Bold) },
+                text = { Text("Are you sure you want to delete '${item.name}'? This action cannot be undone.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            adminViewModel.deleteMenuItem(canteenId, item)
+                            showDeleteConfirm = null
                         },
-                        onError = onError
-                    )
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Delete", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = null }) {
+                        Text("Cancel")
+                    }
                 }
             )
         }
@@ -276,129 +259,119 @@ fun AdminScreen(
 }
 
 @Composable
-fun CanteenCard(
-    canteen: Canteen,
-    onClick: () -> Unit
+fun MenuItemCard(
+    item: MenuItem,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onToggleAvailability: () -> Unit
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column {
-            // Header Image or Placeholder Banner
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(160.dp)
-                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-            ) {
-                if (!canteen.imageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = canteen.imageUrl,
-                        contentDescription = canteen.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    // Stylish Gradient Placeholder
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(
-                                        MaterialTheme.colorScheme.primaryContainer,
-                                        MaterialTheme.colorScheme.surfaceVariant
-                                    )
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "🍔 ${canteen.name}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-
-                // Open/Closed Floating Pill on top of Image
-                val statusColor = if (canteen.isOpen) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
-                val statusText = if (canteen.isOpen) "OPEN" else "CLOSED"
-
-                Surface(
+            if (item.imageUrl != null) {
+                AsyncImage(
+                    model = item.imageUrl,
+                    contentDescription = item.name,
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(12.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                        .fillMaxWidth()
+                        .height(160.dp)
+                        .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                )
+            }
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(statusColor)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = item.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (item.category.isNotBlank()) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant
+                                ) {
+                                    Text(
+                                        text = item.category,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
                         Text(
-                            text = statusText,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = statusColor,
+                            text = "₹${item.price}",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
                         )
+
+                        if (item.description.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = item.description,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
-            }
 
-            // Card Body Info
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Actions & Switch
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = canteen.name,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+                    Row {
+                        TextButton(onClick = onEdit) {
+                            Text("Edit", fontWeight = FontWeight.SemiBold)
+                        }
+                        TextButton(onClick = onDelete) {
+                            Text("Delete", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val statusColor = if (item.isAvailable) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
+                        val statusText = if (item.isAvailable) "Available" else "Sold Out"
 
-                Text(
-                    text = "📍 ${canteen.location}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Manage Canteen & Menu →",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
+                        Text(
+                            text = statusText,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = statusColor,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = item.isAvailable,
+                            onCheckedChange = { onToggleAvailability() },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                checkedTrackColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                    }
                 }
             }
         }
@@ -407,26 +380,33 @@ fun CanteenCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddCanteenBottomSheet(
+fun AddEditMenuItemBottomSheet(
+    canteenId: String,
+    initialItem: MenuItem?,
     onDismiss: () -> Unit,
-    onSave: (name: String, location: String, isOpen: Boolean, imageBytes: ByteArray?, extension: String?, onError: (String) -> Unit, onSuccess: () -> Unit) -> Unit
+    onSave: (newItem: MenuItem, imageBytes: ByteArray?, extension: String?, onError: (String) -> Unit, onSuccess: () -> Unit) -> Unit
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    var name by rememberSaveable { mutableStateOf("") }
-    var location by rememberSaveable { mutableStateOf("") }
-    var isOpen by rememberSaveable { mutableStateOf(true) }
-    var isSaving by remember { mutableStateOf(false) } // Keep as remember to reset smoothly
-    var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var name by remember { mutableStateOf(initialItem?.name ?: "") }
+    var description by remember { mutableStateOf(initialItem?.description ?: "") }
+    var priceStr by remember { mutableStateOf(initialItem?.price?.toString() ?: "") }
+    var category by remember { mutableStateOf(initialItem?.category ?: "") }
+    var isAvailable by remember { mutableStateOf(initialItem?.isAvailable ?: true) }
 
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var removeExistingImage by remember { mutableStateOf(false) }
+
+    var isSaving by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
             selectedImageUri = uri
             capturedBitmap = null
+            removeExistingImage = false
         }
     }
 
@@ -434,7 +414,15 @@ fun AddCanteenBottomSheet(
         if (bitmap != null) {
             capturedBitmap = bitmap
             selectedImageUri = null
+            removeExistingImage = false
         }
+    }
+
+    val currentDisplayImage = when {
+        capturedBitmap != null -> capturedBitmap
+        selectedImageUri != null -> selectedImageUri
+        !removeExistingImage && initialItem?.imageUrl != null -> initialItem.imageUrl
+        else -> null
     }
 
     ModalBottomSheet(
@@ -449,7 +437,7 @@ fun AddCanteenBottomSheet(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
         ) {
-            // Full-Width Top Image Header (Flush to top, no padding)
+            // Full-Width Top Image Header (Flush to top, no padding, no margin)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -461,28 +449,27 @@ fun AddCanteenBottomSheet(
                     capturedBitmap != null -> {
                         Image(
                             bitmap = capturedBitmap!!.asImageBitmap(),
-                            contentDescription = "Canteen Photo",
+                            contentDescription = "Food Image",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
-                    selectedImageUri != null -> {
+                    currentDisplayImage != null -> {
                         AsyncImage(
-                            model = selectedImageUri,
-                            contentDescription = "Canteen Photo",
+                            model = currentDisplayImage,
+                            contentDescription = "Food Image",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
                     else -> {
-                        // Empty Image Placeholder
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                             modifier = Modifier.padding(16.dp)
                         ) {
                             Text(
-                                text = "🏪 Shop Header Photo",
+                                text = "🍕 Food Item Photo",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -497,7 +484,7 @@ fun AddCanteenBottomSheet(
                     }
                 }
 
-                // Overlay Camera / Gallery Action Chips at bottom of Image Header
+                // Overlay Action Chips on the top image header
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -532,13 +519,14 @@ fun AddCanteenBottomSheet(
                         )
                     }
 
-                    if (capturedBitmap != null || selectedImageUri != null) {
+                    if (currentDisplayImage != null) {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
                             modifier = Modifier.clickable(enabled = !isSaving) {
                                 capturedBitmap = null
                                 selectedImageUri = null
+                                removeExistingImage = true
                             }
                         ) {
                             Text(
@@ -553,7 +541,7 @@ fun AddCanteenBottomSheet(
                 }
             }
 
-            // Input Form (Sitting cleanly under the image header)
+            // Input Form (Sitting cleanly under the top image header)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -561,7 +549,7 @@ fun AddCanteenBottomSheet(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = "Create New Canteen",
+                    text = if (initialItem == null) "Add Food Item" else "Edit Food Item",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -584,7 +572,7 @@ fun AddCanteenBottomSheet(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Canteen Name") },
+                    label = { Text("Food Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -592,9 +580,28 @@ fun AddCanteenBottomSheet(
                 )
 
                 OutlinedTextField(
-                    value = location,
-                    onValueChange = { location = it },
-                    label = { Text("Location (e.g. Ground Floor, Block C)") },
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = !isSaving
+                )
+
+                OutlinedTextField(
+                    value = priceStr,
+                    onValueChange = { priceStr = it },
+                    label = { Text("Price (₹)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = !isSaving
+                )
+
+                OutlinedTextField(
+                    value = category,
+                    onValueChange = { category = it },
+                    label = { Text("Category (e.g. Breakfast, Main)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -602,20 +609,18 @@ fun AddCanteenBottomSheet(
                 )
 
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Status: ${if (isOpen) "Open" else "Closed"}",
+                        text = "Available:",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
                     )
                     Switch(
-                        checked = isOpen,
-                        onCheckedChange = { isOpen = it },
+                        checked = isAvailable,
+                        onCheckedChange = { isAvailable = it },
                         enabled = !isSaving,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
@@ -636,7 +641,7 @@ fun AddCanteenBottomSheet(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Creating canteen...",
+                            text = "Saving item...",
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
@@ -657,7 +662,7 @@ fun AddCanteenBottomSheet(
                     }
 
                     Button(
-                        enabled = !isSaving && name.isNotBlank() && location.isNotBlank(),
+                        enabled = !isSaving && name.isNotBlank() && priceStr.isNotBlank(),
                         onClick = {
                             isSaving = true
                             errorMessage = null
@@ -674,10 +679,23 @@ fun AddCanteenBottomSheet(
                                     val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
                                     Pair(bytes, ext)
                                 }
+                                removeExistingImage -> Pair(null, "remove")
                                 else -> Pair(null, null)
                             }
 
-                            onSave(name, location, isOpen, imageBytes, extension,
+                            val price = priceStr.toDoubleOrNull() ?: 0.0
+                            val newItem = MenuItem(
+                                id = initialItem?.id ?: "",
+                                canteenId = canteenId,
+                                name = name,
+                                description = description,
+                                price = price,
+                                category = category,
+                                imageUrl = initialItem?.imageUrl,
+                                isAvailable = isAvailable
+                            )
+
+                            onSave(newItem, imageBytes, extension,
                                 { errorMsg ->
                                     errorMessage = errorMsg
                                     isSaving = false
@@ -691,7 +709,7 @@ fun AddCanteenBottomSheet(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1.5f)
                     ) {
-                        Text("Create Canteen", fontWeight = FontWeight.Bold)
+                        Text("Save", fontWeight = FontWeight.Bold)
                     }
                 }
             }

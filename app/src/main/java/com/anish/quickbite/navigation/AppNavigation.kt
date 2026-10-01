@@ -23,6 +23,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.anish.quickbite.data.model.UserRole
 import com.anish.quickbite.ui.screens.admin.AdminScreen
+import com.anish.quickbite.ui.screens.admin.AdminMenuScreen
+import com.anish.quickbite.ui.screens.admin.AdminOrdersScreen
 import com.anish.quickbite.ui.screens.auth.LoginScreen
 import com.anish.quickbite.ui.screens.home.HomeScreen
 import com.anish.quickbite.viewmodel.AuthState
@@ -100,7 +102,25 @@ fun AppNavigation(
         }
         composable(Routes.ADMIN_DASHBOARD) {
             AdminScreen(
-                onSignOut = { authViewModel.signOut() }
+                onSignOut = { authViewModel.signOut() },
+                onCanteenSelected = { canteen ->
+                    navController.navigate("${Routes.ADMIN_MENU}/${canteen.id}")
+                },
+                onViewOrdersClicked = {
+                    navController.navigate(Routes.ADMIN_ORDERS)
+                }
+            )
+        }
+        composable(Routes.ADMIN_ORDERS) {
+            AdminOrdersScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        composable("${Routes.ADMIN_MENU}/{canteenId}") { backStackEntry ->
+            val canteenId = backStackEntry.arguments?.getString("canteenId") ?: ""
+            AdminMenuScreen(
+                canteenId = canteenId,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }

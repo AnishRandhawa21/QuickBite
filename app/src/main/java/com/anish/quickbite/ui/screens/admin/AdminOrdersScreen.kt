@@ -17,17 +17,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,6 +52,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminOrdersScreen(
     viewModel: AdminOrdersViewModel = viewModel(),
@@ -54,6 +60,11 @@ fun AdminOrdersScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var selectedFilter by remember { mutableStateOf("ALL") }
+    var showRecoveryDialog by remember { mutableStateOf(false) }
+    var recoveryCodeInput by remember { mutableStateOf("") }
+    var isVerifyingCode by remember { mutableStateOf(false) }
+    var recoveryErrorMessage by remember { mutableStateOf<String?>(null) }
+    var recoverySuccessMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.loadOrders()
@@ -94,19 +105,54 @@ fun AdminOrdersScreen(
                 }
             }
             is AdminOrdersState.OrdersLoaded -> {
-                val filterOptions = listOf("ALL", "PLACED", "PREPARING", "READY", "COMPLETED")
-                val filteredOrders = if (selectedFilter == "ALL") {
-                    state.orders
-                } else {
-                    state.orders.filter { it.status.uppercase() == selectedFilter }
+                val orders = state.orders
+                val activeCount = orders.count { it.status.uppercase() in listOf("PICKUP_ACTIVE", "ACTIVE", "PLACED", "PREPARING", "READY") }
+                val completedCount = orders.count { it.status.uppercase() == "COMPLETED" }
+                val recoveryCount = orders.count { it.status.uppercase() in listOf("RECOVERY", "EXPIRED") || !it.recoveryCode.isNullOrBlank() }
+
+                val filterOptions = listOf("ALL", "ACTIVE", "PICKUP_ACTIVE", "COMPLETED", "RECOVERY")
+                val filteredOrders = when (selectedFilter) {
+                    "ALL" -> orders
+                    "ACTIVE" -> orders.filter { it.status.uppercase() in listOf("ACTIVE", "PLACED") }
+                    "PICKUP_ACTIVE" -> orders.filter { it.status.uppercase() in listOf("PICKUP_ACTIVE", "PREPARING", "READY") }
+                    "COMPLETED" -> orders.filter { it.status.uppercase() == "COMPLETED" }
+                    "RECOVERY" -> orders.filter { it.status.uppercase() in listOf("RECOVERY", "EXPIRED") || !it.recoveryCode.isNullOrBlank() }
+                    else -> orders.filter { it.status.uppercase() == selectedFilter }
                 }
 
                 Column(modifier = Modifier.fillMaxSize()) {
+                    // Summary Metric Cards
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        MetricCard(
+                            title = "Active",
+                            count = activeCount.toString(),
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MetricCard(
+                            title = "Completed",
+                            count = completedCount.toString(),
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MetricCard(
+                            title = "Recovery",
+                            count = recoveryCount.toString(),
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
                     // Filter Chips Row
                     LazyRow(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(filterOptions) { filter ->
@@ -115,7 +161,7 @@ fun AdminOrdersScreen(
                                 onClick = { selectedFilter = filter },
                                 label = {
                                     Text(
-                                        text = filter.lowercase().replaceFirstChar { it.uppercase() },
+                                        text = filter.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() },
                                         fontWeight = if (selectedFilter == filter) FontWeight.Bold else FontWeight.Normal
                                     )
                                 },
@@ -136,7 +182,7 @@ fun AdminOrdersScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = if (selectedFilter == "ALL") "No orders found." else "No $selectedFilter orders.",
+                                text = "No ${selectedFilter.replace("_", " ").lowercase()} orders found.",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -144,7 +190,7 @@ fun AdminOrdersScreen(
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 88.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             items(filteredOrders) { order ->
@@ -157,6 +203,162 @@ fun AdminOrdersScreen(
                     }
                 }
             }
+        }
+
+        // Floating Action Button: Verify Recovery Code
+        ExtendedFloatingActionButton(
+            onClick = {
+                recoveryCodeInput = ""
+                recoveryErrorMessage = null
+                recoverySuccessMessage = null
+                showRecoveryDialog = true
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(20.dp),
+            shape = RoundedCornerShape(16.dp),
+            containerColor = MaterialTheme.colorScheme.error,
+            contentColor = MaterialTheme.colorScheme.onError,
+            text = {
+                Text(
+                    text = "Verify Recovery",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            icon = {
+                Text("🔑", style = MaterialTheme.typography.titleMedium)
+            }
+        )
+
+        // Verify Recovery Code Dialog
+        if (showRecoveryDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!isVerifyingCode) showRecoveryDialog = false
+                },
+                shape = RoundedCornerShape(20.dp),
+                title = {
+                    Text("Verify Student Recovery Code", fontWeight = FontWeight.Bold)
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "Enter the 6-character recovery code displayed on the student's expired pickup pass. Eligible orders can be reopened once for a new 10-minute window.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        OutlinedTextField(
+                            value = recoveryCodeInput,
+                            onValueChange = { recoveryCodeInput = it.uppercase() },
+                            label = { Text("Recovery Code") },
+                            placeholder = { Text("e.g. QB-8821") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            enabled = !isVerifyingCode
+                        )
+
+                        if (recoveryErrorMessage != null) {
+                            Text(
+                                text = recoveryErrorMessage!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        if (recoverySuccessMessage != null) {
+                            Text(
+                                text = recoverySuccessMessage!!,
+                                color = MaterialTheme.colorScheme.secondary,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        if (isVerifyingCode) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text("Verifying with server...", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        enabled = !isVerifyingCode && recoveryCodeInput.isNotBlank(),
+                        onClick = {
+                            isVerifyingCode = true
+                            recoveryErrorMessage = null
+                            recoverySuccessMessage = null
+                            viewModel.verifyAndReopenOrder(
+                                recoveryCode = recoveryCodeInput,
+                                onSuccess = {
+                                    isVerifyingCode = false
+                                    recoverySuccessMessage = "Order verified and reopened for 10 minutes!"
+                                    recoveryCodeInput = ""
+                                },
+                                onError = { err ->
+                                    isVerifyingCode = false
+                                    recoveryErrorMessage = err
+                                }
+                            )
+                        },
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Verify & Reopen", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        enabled = !isVerifyingCode,
+                        onClick = { showRecoveryDialog = false }
+                    ) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun MetricCard(
+    title: String,
+    count: String,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = color.copy(alpha = 0.1f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = count,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = color
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold
+            )
         }
     }
 }
@@ -214,10 +416,27 @@ fun OrderCard(
                     color = statusColor.copy(alpha = 0.12f)
                 ) {
                     Text(
-                        text = order.status,
+                        text = order.status.replace("_", " "),
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         style = MaterialTheme.typography.labelMedium,
                         color = statusColor,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Expiry or Recovery Notice if applicable
+            if (!order.recoveryCode.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.errorContainer
+                ) {
+                    Text(
+                        text = "🔑 Recovery Code: ${order.recoveryCode} (Reopens: ${order.reopenCount}/1)",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -321,15 +540,19 @@ fun formatDateTime(isoString: String): String {
 
 @Composable
 fun getStatusColor(status: String) = when (status.uppercase()) {
-    "PLACED" -> MaterialTheme.colorScheme.error // Tomato Burst Red
-    "PREPARING" -> MaterialTheme.colorScheme.primary // Crisp Carrot Orange
-    "READY" -> MaterialTheme.colorScheme.secondary // Forest Green / Kiwi
+    "ACTIVE" -> MaterialTheme.colorScheme.primary
+    "PICKUP_ACTIVE" -> MaterialTheme.colorScheme.secondary
+    "PLACED" -> MaterialTheme.colorScheme.error
+    "PREPARING" -> MaterialTheme.colorScheme.primary
+    "READY" -> MaterialTheme.colorScheme.secondary
+    "RECOVERY", "EXPIRED" -> MaterialTheme.colorScheme.error
     "COMPLETED" -> MaterialTheme.colorScheme.onSurfaceVariant
     else -> MaterialTheme.colorScheme.onSurface
 }
 
 fun getActionTextForStatus(status: String): String? {
     return when (status.uppercase()) {
+        "PICKUP_ACTIVE" -> "Mark Collected / Completed"
         "PLACED" -> "Start Preparing"
         "PREPARING" -> "Mark Ready"
         "READY" -> "Mark Completed"

@@ -53,6 +53,19 @@ private data class CanteenImageUrlUpdateRequest(
     @SerialName("image_url") val imageUrl: String
 )
 
+@Serializable
+private data class CanteenUpdateRequest(
+    val name: String,
+    val location: String,
+    @SerialName("is_open") val isOpen: Boolean,
+    @SerialName("image_url") val imageUrl: String? = null
+)
+
+@Serializable
+private data class CanteenOpenUpdateRequest(
+    @SerialName("is_open") val isOpen: Boolean
+)
+
 class AdminRepository {
     private val supabase = SupabaseClient.client
     private val auth = supabase.auth
@@ -281,6 +294,127 @@ class AdminRepository {
 
             val publicUrl = bucket.publicUrl(path)
             Result.success(publicUrl)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteCanteenImage(imageUrl: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val bucketName = "canteen-images"
+            val pathStart = imageUrl.indexOf("/$bucketName/")
+            if (pathStart != -1) {
+                val path = imageUrl.substring(pathStart + "/$bucketName/".length)
+                supabase.storage.from(bucketName).delete(path)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteCanteen(canteenId: String, imageUrl: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            // First attempt to invoke delete_canteen RPC if provided in DB, otherwise direct delete
+            try {
+                val params = buildJsonObject { put("p_canteen_id", canteenId) }
+                postgrest.rpc("delete_canteen", params)
+            } catch (_: Exception) {
+                postgrest.from("canteens").delete {
+                    filter {
+                        eq("id", canteenId)
+                    }
+                }
+            }
+            if (!imageUrl.isNullOrBlank()) {
+                deleteCanteenImage(imageUrl)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateCanteen(
+        canteenId: String,
+        name: String,
+        location: String,
+        isOpen: Boolean,
+        imageUrl: String? = null
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val request = CanteenUpdateRequest(
+                name = name,
+                location = location,
+                isOpen = isOpen,
+                imageUrl = imageUrl
+            )
+            postgrest.from("canteens").update(request) {
+                filter {
+                    eq("id", canteenId)
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun toggleCanteenOpen(canteenId: String, isOpen: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val request = CanteenOpenUpdateRequest(isOpen = isOpen)
+            postgrest.from("canteens").update(request) {
+                filter {
+                    eq("id", canteenId)
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun verifyAndReopenOrder(recoveryCode: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val trimmedCode = recoveryCode.trim().uppercase()
+            // 1. Try calling the reopen_order_admin RPC if defined in Supabase
+            try {
+                val params = buildJsonObject { put("p_recovery_code", trimmedCode) }
+                postgrest.rpc("reopen_order_admin", params)
+                return@withContext Result.success(Unit)
+            } catch (_: Exception) {
+                // Fallback to direct PostgREST operations
+            }
+
+            val matchingOrders = postgrest.from("orders").select {
+                filter {
+                    eq("recovery_code", trimmedCode)
+                }
+            }.decodeList<Order>()
+
+            val order = matchingOrders.firstOrNull()
+                ?: return@withContext Result.failure(Exception("No order found with recovery code '$trimmedCode'"))
+
+            if (order.reopenCount >= 1) {
+                return@withContext Result.failure(Exception("Order #${order.id.take(8).uppercase()} has already used its one-time recovery reopening."))
+            }
+
+            val now = java.time.Instant.now()
+            val newExpiresAt = now.plusSeconds(600).toString()
+
+            val updatePayload = buildJsonObject {
+                put("status", "PICKUP_ACTIVE")
+                put("activated_at", now.toString())
+                put("expires_at", newExpiresAt)
+                put("reopen_count", order.reopenCount + 1)
+            }
+
+            postgrest.from("orders").update(updatePayload) {
+                filter {
+                    eq("id", order.id)
+                }
+            }
+            Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }

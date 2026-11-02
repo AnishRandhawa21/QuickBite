@@ -26,7 +26,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,8 +48,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,7 +75,10 @@ fun AdminScreen(
     onViewOrdersClicked: () -> Unit
 ) {
     val uiState by adminViewModel.uiState.collectAsState()
-    var showAddCanteenSheet by rememberSaveable { mutableStateOf(false) }
+    var showSheet by rememberSaveable { mutableStateOf(false) }
+    var canteenToEdit by remember { mutableStateOf<Canteen?>(null) }
+    var canteenToDelete by remember { mutableStateOf<Canteen?>(null) }
+    var deleteErrorMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         adminViewModel.loadCanteens()
@@ -141,14 +146,14 @@ fun AdminScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Incoming Orders",
+                                        text = "Incoming Orders & Passes",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "View and manage active food orders",
+                                        text = "View active pickup passes, verify recovery codes & orders",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                                     )
@@ -219,7 +224,18 @@ fun AdminScreen(
                             Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                                 CanteenCard(
                                     canteen = canteen,
-                                    onClick = { onCanteenSelected(canteen) }
+                                    onClick = { onCanteenSelected(canteen) },
+                                    onEdit = {
+                                        canteenToEdit = canteen
+                                        showSheet = true
+                                    },
+                                    onDelete = {
+                                        deleteErrorMessage = null
+                                        canteenToDelete = canteen
+                                    },
+                                    onToggleOpen = {
+                                        adminViewModel.toggleCanteenOpen(canteen)
+                                    }
                                 )
                             }
                         }
@@ -231,7 +247,10 @@ fun AdminScreen(
 
         // Floating Action Button
         ExtendedFloatingActionButton(
-            onClick = { showAddCanteenSheet = true },
+            onClick = {
+                canteenToEdit = null
+                showSheet = true
+            },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(20.dp),
@@ -253,22 +272,93 @@ fun AdminScreen(
             }
         )
 
-        if (showAddCanteenSheet) {
-            AddCanteenBottomSheet(
-                onDismiss = { showAddCanteenSheet = false },
+        // Add or Edit Canteen Bottom Sheet
+        if (showSheet) {
+            AddEditCanteenBottomSheet(
+                initialCanteen = canteenToEdit,
+                onDismiss = {
+                    showSheet = false
+                    canteenToEdit = null
+                },
                 onSave = { name, location, isOpen, bytes, ext, onError, onSuccess ->
-                    adminViewModel.createCanteen(
-                        name = name,
-                        location = location,
-                        isOpen = isOpen,
-                        imageBytes = bytes,
-                        extension = ext,
-                        onSuccess = {
-                            showAddCanteenSheet = false
-                            onSuccess()
+                    if (canteenToEdit == null) {
+                        adminViewModel.createCanteen(
+                            name = name,
+                            location = location,
+                            isOpen = isOpen,
+                            imageBytes = bytes,
+                            extension = ext,
+                            onSuccess = {
+                                showSheet = false
+                                onSuccess()
+                            },
+                            onError = onError
+                        )
+                    } else {
+                        adminViewModel.updateCanteen(
+                            canteen = canteenToEdit!!,
+                            name = name,
+                            location = location,
+                            isOpen = isOpen,
+                            imageBytes = bytes,
+                            extension = ext,
+                            onSuccess = {
+                                showSheet = false
+                                canteenToEdit = null
+                                onSuccess()
+                            },
+                            onError = onError
+                        )
+                    }
+                }
+            )
+        }
+
+        // Delete Confirmation Dialog
+        canteenToDelete?.let { canteen ->
+            AlertDialog(
+                onDismissRequest = { canteenToDelete = null },
+                shape = RoundedCornerShape(20.dp),
+                title = { Text("Delete ${canteen.name}?", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column {
+                        Text("Are you sure you want to delete this canteen? All associated menu items and records will be removed. This cannot be undone.")
+                        if (deleteErrorMessage != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = deleteErrorMessage!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            adminViewModel.deleteCanteen(
+                                canteen = canteen,
+                                onSuccess = {
+                                    canteenToDelete = null
+                                    deleteErrorMessage = null
+                                },
+                                onError = { error ->
+                                    deleteErrorMessage = error
+                                }
+                            )
                         },
-                        onError = onError
-                    )
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Delete", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { canteenToDelete = null }) {
+                        Text("Cancel")
+                    }
                 }
             )
         }
@@ -278,7 +368,10 @@ fun AdminScreen(
 @Composable
 fun CanteenCard(
     canteen: Canteen,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onToggleOpen: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -374,8 +467,30 @@ fun CanteenCard(
                         text = canteen.name,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
                     )
+
+                    // Quick Toggle Switch
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val statusText = if (canteen.isOpen) "Open" else "Closed"
+                        val statusColor = if (canteen.isOpen) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error
+                        Text(
+                            text = statusText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = statusColor,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Switch(
+                            checked = canteen.isOpen,
+                            onCheckedChange = { onToggleOpen() },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                checkedTrackColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -388,13 +503,27 @@ fun CanteenCard(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                // Actions: Edit, Delete & Manage Menu
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Row {
+                        TextButton(onClick = onEdit) {
+                            Text("Edit", fontWeight = FontWeight.SemiBold)
+                        }
+                        TextButton(onClick = onDelete) {
+                            Text(
+                                text = "Delete",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
                     Text(
-                        text = "Manage Canteen & Menu →",
+                        text = "Manage Menu →",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
@@ -407,26 +536,29 @@ fun CanteenCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddCanteenBottomSheet(
+fun AddEditCanteenBottomSheet(
+    initialCanteen: Canteen? = null,
     onDismiss: () -> Unit,
     onSave: (name: String, location: String, isOpen: Boolean, imageBytes: ByteArray?, extension: String?, onError: (String) -> Unit, onSuccess: () -> Unit) -> Unit
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    var name by rememberSaveable { mutableStateOf("") }
-    var location by rememberSaveable { mutableStateOf("") }
-    var isOpen by rememberSaveable { mutableStateOf(true) }
-    var isSaving by remember { mutableStateOf(false) } // Keep as remember to reset smoothly
+    var name by rememberSaveable { mutableStateOf(initialCanteen?.name ?: "") }
+    var location by rememberSaveable { mutableStateOf(initialCanteen?.location ?: "") }
+    var isOpen by rememberSaveable { mutableStateOf(initialCanteen?.isOpen ?: true) }
+    var isSaving by remember { mutableStateOf(false) }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
 
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var removeCurrentImage by remember { mutableStateOf(false) }
 
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
             selectedImageUri = uri
             capturedBitmap = null
+            removeCurrentImage = false
         }
     }
 
@@ -434,6 +566,7 @@ fun AddCanteenBottomSheet(
         if (bitmap != null) {
             capturedBitmap = bitmap
             selectedImageUri = null
+            removeCurrentImage = false
         }
     }
 
@@ -449,7 +582,7 @@ fun AddCanteenBottomSheet(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
         ) {
-            // Full-Width Top Image Header (Flush to top, no padding)
+            // Full-Width Top Image Header
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -474,15 +607,22 @@ fun AddCanteenBottomSheet(
                             modifier = Modifier.fillMaxSize()
                         )
                     }
+                    initialCanteen?.imageUrl != null && !removeCurrentImage -> {
+                        AsyncImage(
+                            model = initialCanteen.imageUrl,
+                            contentDescription = "Canteen Photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                     else -> {
-                        // Empty Image Placeholder
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                             modifier = Modifier.padding(16.dp)
                         ) {
                             Text(
-                                text = "🏪 Shop Header Photo",
+                                text = "🏪 Canteen Photo",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -497,7 +637,7 @@ fun AddCanteenBottomSheet(
                     }
                 }
 
-                // Overlay Camera / Gallery Action Chips at bottom of Image Header
+                // Overlay Camera / Gallery / Remove Chips
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -532,13 +672,14 @@ fun AddCanteenBottomSheet(
                         )
                     }
 
-                    if (capturedBitmap != null || selectedImageUri != null) {
+                    if (capturedBitmap != null || selectedImageUri != null || (initialCanteen?.imageUrl != null && !removeCurrentImage)) {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
                             modifier = Modifier.clickable(enabled = !isSaving) {
                                 capturedBitmap = null
                                 selectedImageUri = null
+                                removeCurrentImage = true
                             }
                         ) {
                             Text(
@@ -553,7 +694,7 @@ fun AddCanteenBottomSheet(
                 }
             }
 
-            // Input Form (Sitting cleanly under the image header)
+            // Input Form
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -561,7 +702,7 @@ fun AddCanteenBottomSheet(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = "Create New Canteen",
+                    text = if (initialCanteen == null) "Create New Canteen" else "Edit Canteen",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -636,7 +777,7 @@ fun AddCanteenBottomSheet(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Creating canteen...",
+                            text = if (initialCanteen == null) "Creating canteen..." else "Updating canteen...",
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
@@ -674,6 +815,7 @@ fun AddCanteenBottomSheet(
                                     val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
                                     Pair(bytes, ext)
                                 }
+                                removeCurrentImage -> Pair(null, "remove")
                                 else -> Pair(null, null)
                             }
 
@@ -691,7 +833,10 @@ fun AddCanteenBottomSheet(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1.5f)
                     ) {
-                        Text("Create Canteen", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (initialCanteen == null) "Create Canteen" else "Save Changes",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }

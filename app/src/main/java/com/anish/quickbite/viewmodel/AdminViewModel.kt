@@ -190,4 +190,75 @@ class AdminViewModel(
             onSuccess()
         }
     }
+
+    fun deleteCanteen(
+        canteen: Canteen,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            repository.deleteCanteen(canteen.id, canteen.imageUrl).onSuccess {
+                loadCanteens()
+                onSuccess()
+            }.onFailure {
+                onError(it.localizedMessage ?: "Failed to delete canteen")
+            }
+        }
+    }
+
+    fun updateCanteen(
+        canteen: Canteen,
+        name: String,
+        location: String,
+        isOpen: Boolean,
+        imageBytes: ByteArray? = null,
+        extension: String? = null,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            var finalImageUrl = canteen.imageUrl
+            var oldImageUrlToClean: String? = null
+
+            if (imageBytes != null && extension != null) {
+                repository.uploadCanteenImage(canteen.id, imageBytes, extension).onSuccess { url ->
+                    oldImageUrlToClean = finalImageUrl
+                    finalImageUrl = url
+                }.onFailure {
+                    onError(it.localizedMessage ?: "Failed to upload canteen image")
+                    return@launch
+                }
+            } else if (imageBytes == null && extension == "remove") {
+                oldImageUrlToClean = finalImageUrl
+                finalImageUrl = null
+            }
+
+            repository.updateCanteen(
+                canteenId = canteen.id,
+                name = name,
+                location = location,
+                isOpen = isOpen,
+                imageUrl = finalImageUrl
+            ).onSuccess {
+                loadCanteens()
+                oldImageUrlToClean?.let { url -> repository.deleteCanteenImage(url) }
+                onSuccess()
+            }.onFailure {
+                if (imageBytes != null && finalImageUrl != null && finalImageUrl != canteen.imageUrl) {
+                    repository.deleteCanteenImage(finalImageUrl!!)
+                }
+                onError(it.localizedMessage ?: "Failed to update canteen")
+            }
+        }
+    }
+
+    fun toggleCanteenOpen(canteen: Canteen) {
+        viewModelScope.launch {
+            repository.toggleCanteenOpen(canteen.id, !canteen.isOpen).onSuccess {
+                loadCanteens()
+            }.onFailure {
+                _uiState.value = AdminState.Error(it.localizedMessage ?: "Failed to update canteen status")
+            }
+        }
+    }
 }

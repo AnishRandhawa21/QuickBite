@@ -37,6 +37,8 @@ class AdminOrdersViewModel(
 
     fun updateOrderStatus(orderId: String, currentStatus: String) {
         val nextStatus = when (currentStatus) {
+            "ACTIVE" -> "PICKUP_ACTIVE"
+            "PICKUP_ACTIVE" -> "COMPLETED"
             "PLACED" -> "PREPARING"
             "PREPARING" -> "READY"
             "READY" -> "COMPLETED"
@@ -45,10 +47,24 @@ class AdminOrdersViewModel(
 
         viewModelScope.launch {
             repository.updateOrderStatus(orderId, nextStatus).onSuccess {
-                // Refresh orders after successful update
                 loadOrders()
             }.onFailure {
                 _uiState.value = AdminOrdersState.Error(it.localizedMessage ?: "Failed to update status")
+            }
+        }
+    }
+
+    fun verifyAndReopenOrder(
+        recoveryCode: String,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            repository.verifyAndReopenOrder(recoveryCode).onSuccess {
+                loadOrders()
+                onSuccess()
+            }.onFailure {
+                onError(it.localizedMessage ?: "Failed to verify recovery code")
             }
         }
     }

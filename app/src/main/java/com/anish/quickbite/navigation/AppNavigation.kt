@@ -22,11 +22,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.anish.quickbite.data.model.UserRole
-import com.anish.quickbite.ui.screens.admin.AdminScreen
 import com.anish.quickbite.ui.screens.admin.AdminMenuScreen
 import com.anish.quickbite.ui.screens.admin.AdminOrdersScreen
+import com.anish.quickbite.ui.screens.admin.AdminScreen
 import com.anish.quickbite.ui.screens.auth.LoginScreen
 import com.anish.quickbite.ui.screens.home.HomeScreen
+import com.anish.quickbite.ui.screens.student.AIChatScreen
+import com.anish.quickbite.ui.screens.student.StudentPassScreen
+import com.anish.quickbite.ui.screens.student.StudentProfileScreen
 import com.anish.quickbite.viewmodel.AuthState
 import com.anish.quickbite.viewmodel.AuthViewModel
 
@@ -43,19 +46,34 @@ fun AppNavigation(
             is AuthState.Authenticated -> {
                 when (state.userProfile.role) {
                     UserRole.STUDENT -> {
-                        navController.navigate(Routes.STUDENT_HOME) {
-                            popUpTo(0) { inclusive = true }
+                        val current = navController.currentDestination?.route
+                        if (current !in listOf(
+                                Routes.STUDENT_HOME,
+                                Routes.AI_CHAT,
+                                Routes.STUDENT_PROFILE,
+                                Routes.STUDENT_PASS
+                            )
+                        ) {
+                            navController.navigate(Routes.STUDENT_HOME) {
+                                popUpTo(0) { inclusive = true }
+                            }
                         }
                     }
                     UserRole.ADMIN -> {
-                        navController.navigate(Routes.ADMIN_DASHBOARD) {
-                            popUpTo(0) { inclusive = true }
+                        val current = navController.currentDestination?.route
+                        if (current !in listOf(
+                                Routes.ADMIN_DASHBOARD,
+                                Routes.ADMIN_ORDERS
+                            ) && current?.startsWith(Routes.ADMIN_MENU) != true
+                        ) {
+                            navController.navigate(Routes.ADMIN_DASHBOARD) {
+                                popUpTo(0) { inclusive = true }
+                            }
                         }
                     }
                 }
             }
             is AuthState.NotAuthenticated, is AuthState.SessionRestorationFailed, is AuthState.Error, is AuthState.MissingProfile, is AuthState.NetworkError, is AuthState.OAuthCancelled -> {
-                // If not authenticated, go to Login (unless already on it)
                 if (navController.currentDestination?.route != Routes.LOGIN) {
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(0) { inclusive = true }
@@ -97,6 +115,21 @@ fun AppNavigation(
         }
         composable(Routes.STUDENT_HOME) {
             HomeScreen(
+                onOpenPassClicked = {
+                    navController.navigate(Routes.STUDENT_PASS)
+                }
+            )
+        }
+        composable(Routes.STUDENT_PASS) {
+            StudentPassScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.AI_CHAT) {
+            AIChatScreen()
+        }
+        composable(Routes.STUDENT_PROFILE) {
+            StudentProfileScreen(
                 onSignOut = { authViewModel.signOut() }
             )
         }

@@ -1,6 +1,9 @@
 package com.anish.quickbite.data.repository
 
-import com.anish.quickbite.SupabaseClient
+import com.anish.quickbite.QuickBiteApp
+import com.anish.quickbite.data.SupabaseClient
+import com.anish.quickbite.data.local.dao.MenuDao
+import com.anish.quickbite.data.local.entity.MenuItemEntity
 import com.anish.quickbite.data.model.Canteen
 import com.anish.quickbite.data.model.CanteenAdmin
 import com.anish.quickbite.data.model.MenuItem
@@ -10,6 +13,8 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -66,10 +71,21 @@ private data class CanteenOpenUpdateRequest(
     @SerialName("is_open") val isOpen: Boolean
 )
 
-class AdminRepository {
+class AdminRepository(
+    private val menuDao: MenuDao = QuickBiteApp.database.menuDao()
+) {
     private val supabase = SupabaseClient.client
     private val auth = supabase.auth
     private val postgrest = supabase.postgrest
+
+    /**
+     * Observes menu items from the local Room database via Flow.
+     */
+    fun getMenuItemsFlow(canteenId: String): Flow<List<MenuItem>> {
+        return menuDao.getMenuItemsByCanteenFlow(canteenId).map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
 
     suspend fun getAssignedCanteens(): Result<List<Canteen>> = withContext(Dispatchers.IO) {
         try {
@@ -101,9 +117,17 @@ class AdminRepository {
                     }
                 }
                 .decodeList<MenuItem>()
+            // Synchronize with local Room cache
+            menuDao.syncCanteenMenu(canteenId, items.map { MenuItemEntity.fromDomain(it) })
             Result.success(items)
         } catch (e: Exception) {
-            Result.failure(e)
+            // Offline fallback to Room
+            val cached = menuDao.getMenuItemsByCanteenDirect(canteenId)
+            if (cached.isNotEmpty()) {
+                Result.success(cached.map { it.toDomain() })
+            } else {
+                Result.failure(e)
+            }
         }
     }
 
@@ -118,8 +142,12 @@ class AdminRepository {
                 imageUrl = menuItem.imageUrl,
                 isAvailable = menuItem.isAvailable
             )
-
             postgrest.from("menu_items").insert(itemToInsert)
+            // Refresh local Room cache from remote to include newly generated DB id
+            val freshRemote = postgrest.from("menu_items")
+                .select { filter { eq("canteen_id", menuItem.canteenId) } }
+                .decodeList<MenuItem>()
+            menuDao.syncCanteenMenu(menuItem.canteenId, freshRemote.map { MenuItemEntity.fromDomain(it) })
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -141,6 +169,8 @@ class AdminRepository {
                     eq("id", menuItem.id)
                 }
             }
+            // Update local Room cache
+            menuDao.insertMenuItem(MenuItemEntity.fromDomain(menuItem))
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -154,6 +184,8 @@ class AdminRepository {
                     eq("id", itemId)
                 }
             }
+            // Delete from local Room cache
+            menuDao.deleteMenuItemById(itemId)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -167,6 +199,11 @@ class AdminRepository {
                 filter {
                     eq("id", itemId)
                 }
+            }
+            // Update in Room cache
+            val cachedItem = menuDao.getMenuItemById(itemId)
+            if (cachedItem != null) {
+                menuDao.insertMenuItem(cachedItem.copy(isAvailable = isAvailable))
             }
             Result.success(Unit)
         } catch (e: Exception) {
@@ -403,7 +440,7 @@ class AdminRepository {
             val newExpiresAt = now.plusSeconds(600).toString()
 
             val updatePayload = buildJsonObject {
-                put("status", "PICKUP_ACTIVE")
+                put("status", "READY")
                 put("activated_at", now.toString())
                 put("expires_at", newExpiresAt)
                 put("reopen_count", order.reopenCount + 1)

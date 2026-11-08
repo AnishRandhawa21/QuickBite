@@ -5,7 +5,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import com.anish.quickbite.BuildConfig
-import com.anish.quickbite.SupabaseClient
+import com.anish.quickbite.data.SupabaseClient
 import com.anish.quickbite.data.model.UserProfile
 import com.anish.quickbite.data.model.UserRole
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
